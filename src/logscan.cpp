@@ -9,6 +9,8 @@
 #include <sstream>
 #include <unordered_map>
 
+#include "sentinel/rules.hpp"
+
 namespace sentinel {
 
 const char* severity_name(Severity s) {
@@ -189,60 +191,53 @@ std::vector<Finding> detect_bruteforce(const std::vector<LogEntry>& entries, con
 
 namespace {
 
-struct Pattern {
-    const char* type;
-    const char* label;
-    Severity severity;
-    std::regex re;
-};
+constexpr std::size_t kMaxMatchLength = 4096;  // bound regex work per request path
 
-const std::vector<Pattern>& patterns() {
-    static const std::vector<Pattern> p = [] {
-        auto rx = [](const char* s) { return std::regex(s, std::regex::ECMAScript | std::regex::icase); };
-        std::vector<Pattern> v;
-        v.push_back({"sqli", "SQL injection (UNION SELECT)", Severity::High,
-                     rx(R"(union(\s|/\*.*?\*/)+(all\s+)?select)")});
-        v.push_back({"sqli", "SQL injection (boolean tautology)", Severity::High,
-                     rx(R"((['"]\s*)?\b(or|and)\b\s+['"]?\d+['"]?\s*=\s*['"]?\d+|['"]\s*or\s*['"][^'"]*['"]\s*=\s*['"])")});
-        v.push_back({"sqli", "SQL injection (time/meta functions)", Severity::High,
-                     rx(R"(sleep\s*\(\s*\d+|benchmark\s*\(|information_schema|;\s*drop\s+table|xp_cmdshell)")});
-        v.push_back({"xss", "Cross-site scripting", Severity::Medium,
-                     rx(R"(<\s*script|javascript\s*:|\bon(error|load|mouseover|focus)\s*=|<\s*(img|svg|iframe)[^>]*>)")});
-        v.push_back({"path-traversal", "Path traversal", Severity::High,
-                     rx(R"(\.\.[/\\]|/etc/(passwd|shadow)|boot\.ini|win\.ini|\.\.%2f)")});
-        v.push_back({"cmd-injection", "Command injection", Severity::High,
-                     rx(R"((;|\||&&|`|\$\()\s*(cat|ls|id|whoami|wget|curl|nc|bash|sh|powershell|cmd)\b)")});
-        v.push_back({"recon", "Sensitive file / admin probe", Severity::Low,
-                     rx(R"((^|/)(\.env|\.git/|\.htpasswd|wp-login\.php|phpmyadmin|server-status|\.aws/credentials))")});
-        return v;
-    }();
-    return p;
-}
+class PatternDetector final : public Detector {
+public:
+    explicit PatternDetector(const std::vector<PatternRule>& rules) {
+        for (const auto& r : rules)
+            rules_.push_back({r, std::regex(r.regex, std::regex::ECMAScript | std::regex::icase)});  // may throw regex_error
+    }
+    std::string_view id() const override { return "patterns"; }
+    std::vector<Finding> analyze(std::span<const LogEntry> entries) const override {
+        std::vector<Finding> out;
+        for (const auto& e : entries) {
+            if (e.kind != LogKind::Web) continue;
+            std::string decoded = url_decode(url_decode(e.path));  // handle double encoding
+            if (decoded.size() > kMaxMatchLength) decoded.resize(kMaxMatchLength);
+            for (const auto& cr : rules_) {
+                if (!std::regex_search(decoded, cr.re)) continue;
+                Finding f;
+                f.type = cr.rule.type;
+                f.ip = e.ip;
+                f.line = e.line;
+                f.ts = e.ts;
+                f.severity = cr.rule.severity;
+                // A traversal / injection that got a 200 is more worrying.
+                if (e.status >= 200 && e.status < 300 && cr.rule.severity >= Severity::High) f.severity = Severity::Critical;
+                std::string shown = decoded.size() > 90 ? decoded.substr(0, 87) + "..." : decoded;
+                f.summary = cr.rule.label + ": " + e.method + " " + shown + " -> " + std::to_string(e.status);
+                out.push_back(std::move(f));
+                break;  // one finding per request
+            }
+        }
+        return out;
+    }
+
+private:
+    struct Compiled {
+        PatternRule rule;
+        std::regex re;
+    };
+    std::vector<Compiled> rules_;
+};
 
 }  // namespace
 
 std::vector<Finding> detect_suspicious_paths(const std::vector<LogEntry>& entries) {
-    std::vector<Finding> out;
-    for (const auto& e : entries) {
-        if (e.kind != LogKind::Web) continue;
-        std::string decoded = url_decode(url_decode(e.path));  // handle double encoding
-        for (const auto& p : patterns()) {
-            if (!std::regex_search(decoded, p.re)) continue;
-            Finding f;
-            f.type = p.type;
-            f.ip = e.ip;
-            f.line = e.line;
-            f.ts = e.ts;
-            f.severity = p.severity;
-            // A traversal / injection that got a 200 is more worrying.
-            if (e.status >= 200 && e.status < 300 && p.severity >= Severity::High) f.severity = Severity::Critical;
-            std::string shown = decoded.size() > 90 ? decoded.substr(0, 87) + "..." : decoded;
-            f.summary = std::string(p.label) + ": " + e.method + " " + shown + " -> " + std::to_string(e.status);
-            out.push_back(f);
-            break;  // one finding per request
-        }
-    }
-    return out;
+    static const PatternDetector det(default_rules().patterns);
+    return det.analyze(entries);
 }
 
 std::vector<Finding> detect_rate_spikes(const std::vector<LogEntry>& entries, const DetectorConfig& cfg) {
@@ -293,14 +288,75 @@ std::vector<Finding> detect_rate_spikes(const std::vector<LogEntry>& entries, co
     return out;
 }
 
-LogScanResult analyze_log(std::istream& in, const DetectorConfig& cfg, int default_year) {
+namespace {
+
+class BruteForceDetector final : public Detector {
+public:
+    explicit BruteForceDetector(DetectorConfig c) : cfg_(c) {}
+    std::string_view id() const override { return "bruteforce"; }
+    std::vector<Finding> analyze(std::span<const LogEntry> e) const override {
+        return detect_bruteforce(std::vector<LogEntry>(e.begin(), e.end()), cfg_);
+    }
+
+private:
+    DetectorConfig cfg_;
+};
+
+class RateSpikeDetector final : public Detector {
+public:
+    explicit RateSpikeDetector(DetectorConfig c) : cfg_(c) {}
+    std::string_view id() const override { return "rate-spike"; }
+    std::vector<Finding> analyze(std::span<const LogEntry> e) const override {
+        return detect_rate_spikes(std::vector<LogEntry>(e.begin(), e.end()), cfg_);
+    }
+
+private:
+    DetectorConfig cfg_;
+};
+
+}  // namespace
+
+void DetectorRegistry::register_factory(std::string id, Factory f) { factories_[std::move(id)] = std::move(f); }
+
+std::vector<std::string> DetectorRegistry::ids() const {
+    std::vector<std::string> v;
+    for (const auto& [k, f] : factories_) v.push_back(k);
+    return v;
+}
+
+Result<std::vector<std::unique_ptr<Detector>>> DetectorRegistry::create_all(const RulesConfig& cfg) const {
+    std::vector<std::unique_ptr<Detector>> out;
+    for (const auto& [id, factory] : factories_) {
+        if (cfg.disabled.count(id)) continue;
+        try {
+            if (auto d = factory(cfg)) out.push_back(std::move(d));
+        } catch (const std::exception& ex) {
+            return make_error("cannot build detector '" + id + "': " + ex.what(), Errc::InvalidArgument);
+        }
+    }
+    return out;
+}
+
+const DetectorRegistry& DetectorRegistry::builtin() {
+    static const DetectorRegistry reg = [] {
+        DetectorRegistry r;
+        r.register_factory("bruteforce", [](const RulesConfig& c) { return std::make_unique<BruteForceDetector>(c.thresholds); });
+        r.register_factory("patterns", [](const RulesConfig& c) { return std::make_unique<PatternDetector>(c.patterns); });
+        r.register_factory("rate-spike", [](const RulesConfig& c) { return std::make_unique<RateSpikeDetector>(c.thresholds); });
+        return r;
+    }();
+    return reg;
+}
+
+Result<LogScanResult> analyze_log(std::istream& in, const RulesConfig& rules, int default_year,
+                                  const DetectorRegistry& registry) {
     LogScanResult r;
     std::vector<LogEntry> entries;
     std::string line;
     std::size_t no = 0;
     while (std::getline(in, line)) {
         ++no;
-        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (!line.empty() && line.back() == '') line.pop_back();
         if (line.empty()) continue;
         ++r.lines_total;
         if (auto e = parse_log_line(line, default_year, no)) {
@@ -310,15 +366,23 @@ LogScanResult analyze_log(std::istream& in, const DetectorConfig& cfg, int defau
             ++r.lines_unparsed;
         }
     }
-    auto add = [&](std::vector<Finding> v) { r.findings.insert(r.findings.end(), v.begin(), v.end()); };
-    add(detect_bruteforce(entries, cfg));
-    add(detect_suspicious_paths(entries));
-    add(detect_rate_spikes(entries, cfg));
+    auto detectors = registry.create_all(rules);
+    if (!detectors) return detectors.error();
+    for (const auto& d : detectors.value()) {
+        auto v = d->analyze(entries);
+        r.findings.insert(r.findings.end(), std::make_move_iterator(v.begin()), std::make_move_iterator(v.end()));
+    }
     std::stable_sort(r.findings.begin(), r.findings.end(), [](const Finding& a, const Finding& b) {
         if (a.severity != b.severity) return a.severity > b.severity;
         return a.line < b.line;
     });
     return r;
+}
+
+LogScanResult analyze_log(std::istream& in, const DetectorConfig& cfg, int default_year) {
+    RulesConfig rules = default_rules();
+    rules.thresholds = cfg;
+    return analyze_log(in, rules, default_year).value();  // default rules are always valid
 }
 
 }  // namespace sentinel

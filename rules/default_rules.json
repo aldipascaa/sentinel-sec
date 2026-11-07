@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "bruteforce": {
+    "enabled": true,
+    "threshold": 5,
+    "window_seconds": 300
+  },
+  "rate_spike": {
+    "enabled": true,
+    "z_threshold": 3.0,
+    "bucket_seconds": 60,
+    "min_requests": 20
+  },
+  "patterns": [
+    {
+      "id": "sqli-union",
+      "type": "sqli",
+      "label": "SQL injection (UNION SELECT)",
+      "severity": "high",
+      "regex": "union(\\s|/\\*.*?\\*/)+(all\\s+)?select"
+    },
+    {
+      "id": "sqli-tautology",
+      "type": "sqli",
+      "label": "SQL injection (boolean tautology)",
+      "severity": "high",
+      "regex": "(['\"]\\s*)?\\b(or|and)\\b\\s+['\"]?\\d+['\"]?\\s*=\\s*['\"]?\\d+|['\"]\\s*or\\s*['\"][^'\"]*['\"]\\s*=\\s*['\"]"
+    },
+    {
+      "id": "sqli-functions",
+      "type": "sqli",
+      "label": "SQL injection (time/meta functions)",
+      "severity": "high",
+      "regex": "sleep\\s*\\(\\s*\\d+|benchmark\\s*\\(|information_schema|;\\s*drop\\s+table|xp_cmdshell"
+    },
+    {
+      "id": "xss",
+      "type": "xss",
+      "label": "Cross-site scripting",
+      "severity": "medium",
+      "regex": "<\\s*script|javascript\\s*:|\\bon(error|load|mouseover|focus)\\s*=|<\\s*(img|svg|iframe)[^>]*>"
+    },
+    {
+      "id": "path-traversal",
+      "type": "path-traversal",
+      "label": "Path traversal",
+      "severity": "high",
+      "regex": "\\.\\.[/\\\\]|/etc/(passwd|shadow)|boot\\.ini|win\\.ini|\\.\\.%2f"
+    },
+    {
+      "id": "cmd-injection",
+      "type": "cmd-injection",
+      "label": "Command injection",
+      "severity": "high",
+      "regex": "(;|\\||&&|`|\\$\\()\\s*(cat|ls|id|whoami|wget|curl|nc|bash|sh|powershell|cmd)\\b"
+    },
+    {
+      "id": "recon-sensitive",
+      "type": "recon",
+      "label": "Sensitive file / admin probe",
+      "severity": "low",
+      "regex": "(^|/)(\\.env|\\.git/|\\.htpasswd|wp-login\\.php|phpmyadmin|server-status|\\.aws/credentials)"
+    }
+  ]
+}
