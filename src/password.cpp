@@ -186,8 +186,6 @@ PasswordResult audit_password(std::string_view pw, const std::unordered_set<std:
     if (!sy) r.feedback.push_back("Add a symbol such as ! or #");
     if (!r.patterns.empty() && !r.common) r.feedback.push_back("Avoid repeats, sequences and keyboard patterns");
     if (r.score >= 3 && r.feedback.empty()) r.feedback.push_back("Looks good - consider a password manager and unique passwords per site");
-    if (r.score >= 3 && r.length >= 12 && !r.feedback.empty() && r.score == 4)
-        r.feedback.insert(r.feedback.begin(), "Strong choice");
     return r;
 }
 

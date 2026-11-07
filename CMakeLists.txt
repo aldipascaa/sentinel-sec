@@ -9,7 +9,7 @@ set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 option(SENTINEL_BUILD_TESTS "Build unit tests" ON)
 
 include(FetchContent)
-set(FETCHCONTENT_QUIET OFF)
+set(FETCHCONTENT_QUIET ON)
 
 # Header-only deps: populate only (SOURCE_SUBDIR points at nothing, so no add_subdirectory).
 FetchContent_Declare(nlohmann_json

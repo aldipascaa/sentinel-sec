@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Sentinel Dashboard</title>
+<style>
+:root{
+  --bg:#f4f6fa; --surface:#ffffff; --surface2:#eef1f7; --text:#161b26; --muted:#58627a; --border:#d5dbe8;
+  --accent:#2457d6; --accent-text:#ffffff; --focus:#e08a00;
+  --crit-bg:#fde7ea; --crit-fg:#9b0f26; --high-bg:#ffe9d9; --high-fg:#9a3b00; --med-bg:#fff4cc; --med-fg:#6e5200;
+  --low-bg:#e1effe; --low-fg:#1648a8; --info-bg:#e6e9ef; --info-fg:#3d465a; --ok-bg:#dff5e6; --ok-fg:#0d6a2f;
+  --shadow:0 1px 2px rgba(20,30,60,.06),0 4px 14px rgba(20,30,60,.05);
+}
+:root[data-theme="dark"]{
+  --bg:#0e121b; --surface:#171d2a; --surface2:#1f2738; --text:#e8ecf5; --muted:#9aa5bf; --border:#2c364c;
+  --accent:#7aa2ff; --accent-text:#0b1020; --focus:#ffb43d;
+  --crit-bg:#4a1520; --crit-fg:#ff9fb0; --high-bg:#4a2410; --high-fg:#ffb98a; --med-bg:#41360c; --med-fg:#f4d675;
+  --low-bg:#14305c; --low-fg:#9cc2ff; --info-bg:#2a3245; --info-fg:#c3cce0; --ok-bg:#12381f; --ok-fg:#8fe0aa;
+  --shadow:none;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0e121b; --surface:#171d2a; --surface2:#1f2738; --text:#e8ecf5; --muted:#9aa5bf; --border:#2c364c;
+    --accent:#7aa2ff; --accent-text:#0b1020; --focus:#ffb43d;
+    --crit-bg:#4a1520; --crit-fg:#ff9fb0; --high-bg:#4a2410; --high-fg:#ffb98a; --med-bg:#41360c; --med-fg:#f4d675;
+    --low-bg:#14305c; --low-fg:#9cc2ff; --info-bg:#2a3245; --info-fg:#c3cce0; --ok-bg:#12381f; --ok-fg:#8fe0aa;
+    --shadow:none;
+  }
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+a{color:var(--accent)}
+:focus-visible{outline:3px solid var(--focus);outline-offset:2px;border-radius:4px}
+.skip{position:absolute;left:-999px;top:0;background:var(--accent);color:var(--accent-text);padding:.5rem 1rem;z-index:10}
+.skip:focus{left:8px;top:8px}
+header{background:var(--surface);border-bottom:1px solid var(--border)}
+.wrap{max-width:1040px;margin:0 auto;padding:0 16px}
+.bar{display:flex;align-items:center;gap:12px;padding:12px 0;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:1.25rem;letter-spacing:.2px}
+.brand svg{width:30px;height:30px;color:var(--accent)}
+.ver{color:var(--muted);font-size:.8rem;font-weight:500}
+.spacer{flex:1}
+button,.btn{font:inherit;cursor:pointer;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text);padding:.5rem .9rem;min-height:40px}
+button:hover{border-color:var(--accent)}
+button.primary{background:var(--accent);color:var(--accent-text);border-color:var(--accent);font-weight:600}
+button.primary:disabled{opacity:.6;cursor:progress}
+nav[role=tablist]{display:flex;gap:4px;overflow-x:auto;padding-bottom:0}
+[role=tab]{border:0;border-bottom:3px solid transparent;border-radius:0;background:none;padding:.7rem 1rem;color:var(--muted);font-weight:600;white-space:nowrap}
+[role=tab][aria-selected=true]{color:var(--text);border-bottom-color:var(--accent)}
+main.wrap{padding:20px 16px 48px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px;box-shadow:var(--shadow);margin-bottom:16px}
+h1,h2,h3{line-height:1.25;margin:0 0 .5rem}
+h2{font-size:1.2rem} h3{font-size:1rem}
+p{margin:.25rem 0 .75rem}
+.muted{color:var(--muted)} .small{font-size:.85rem}
+.notice{border-left:4px solid var(--focus);background:var(--surface2);padding:.6rem .8rem;border-radius:6px;font-size:.9rem;margin-bottom:14px}
+.row{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end}
+label{display:block;font-size:.85rem;font-weight:600;margin-bottom:4px}
+input[type=text],input[type=number],input[type=password],select,textarea{font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:.5rem .6rem;min-height:40px;width:100%}
+textarea{font-family:ui-monospace,Consolas,monospace;font-size:.85rem;min-height:170px;resize:vertical}
+.field{flex:1 1 150px;min-width:0}
+.check{display:flex;align-items:center;gap:8px;min-height:40px}
+.check input{width:20px;height:20px}
+.status{min-height:1.5rem;margin:.5rem 0}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
+.chip{background:var(--surface2);border:1px solid var(--border);border-radius:999px;padding:.15rem .7rem;font-size:.85rem}
+.badge{display:inline-flex;align-items:center;gap:5px;border-radius:6px;padding:.1rem .55rem;font-size:.78rem;font-weight:700;letter-spacing:.4px;text-transform:uppercase;white-space:nowrap}
+.badge::before{content:"";width:8px;height:8px;background:currentColor}
+.sev-critical{background:var(--crit-bg);color:var(--crit-fg)} .sev-critical::before{border-radius:0;transform:rotate(45deg)}
+.sev-high{background:var(--high-bg);color:var(--high-fg)} .sev-high::before{clip-path:polygon(50% 0,100% 100%,0 100%)}
+.sev-medium{background:var(--med-bg);color:var(--med-fg)} .sev-medium::before{border-radius:0}
+.sev-low{background:var(--low-bg);color:var(--low-fg)} .sev-low::before{border-radius:50%}
+.sev-info{background:var(--info-bg);color:var(--info-fg)} .sev-info::before{border-radius:50%;background:none;border:2px solid currentColor}
+.sev-ok{background:var(--ok-bg);color:var(--ok-fg)} .sev-ok::before{border-radius:50%}
+.tablewrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:.92rem}
+th,td{text-align:left;padding:.5rem .6rem;border-bottom:1px solid var(--border);vertical-align:top}
+th{font-size:.78rem;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
+td.mono,.mono{font-family:ui-monospace,Consolas,monospace;font-size:.85rem;word-break:break-all}
+.group{margin-top:16px}
+.group h3{display:flex;align-items:center;gap:8px}
+.finding{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;padding:.6rem 0;border-bottom:1px solid var(--border)}
+.finding:last-child{border-bottom:0}
+.finding .meta{color:var(--muted);font-size:.82rem}
+.meter{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin:10px 0 6px}
+.meter span{height:10px;border-radius:5px;background:var(--surface2);border:1px solid var(--border)}
+.meter[data-score="0"] span:nth-child(-n+1){background:#d93a4f;border-color:#d93a4f}
+.meter[data-score="1"] span:nth-child(-n+2){background:#e8742a;border-color:#e8742a}
+.meter[data-score="2"] span:nth-child(-n+3){background:#d9a514;border-color:#d9a514}
+.meter[data-score="3"] span:nth-child(-n+4){background:#6aae2a;border-color:#6aae2a}
+.meter[data-score="4"] span{background:#22a05a;border-color:#22a05a}
+.pwrow{display:flex;gap:8px}
+.pwrow input{flex:1}
+ul.plain{margin:.25rem 0 0;padding-left:1.2rem}
+.empty{padding:1.2rem;text-align:center;color:var(--muted)}
+.hist{list-style:none;margin:0;padding:0}
+.hist li{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:.7rem 0;border-bottom:1px solid var(--border)}
+.hist li .grow{flex:1 1 220px;min-width:0}
+pre.json{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;overflow:auto;max-height:360px;font-size:.8rem}
+.err{color:var(--crit-fg);background:var(--crit-bg);padding:.5rem .7rem;border-radius:8px}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:sp .8s linear infinite;vertical-align:-2px;margin-right:6px}
+@keyframes sp{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}}
+@media (max-width:640px){
+  .card{padding:14px}
+  table.stack thead{position:absolute;left:-9999px}
+  table.stack tr{display:block;border-bottom:1px solid var(--border);padding:.5rem 0}
+  table.stack td{display:flex;gap:10px;border:0;padding:.15rem 0}
+  table.stack td::before{content:attr(data-label);flex:0 0 72px;font-size:.75rem;text-transform:uppercase;color:var(--muted);padding-top:2px}
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header>
+  <div class="wrap">
+    <div class="bar">
+      <div class="brand">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2 4 5v6c0 5 3.4 9.3 8 11 4.6-1.7 8-6 8-11V5l-8-3Z"/><path d="m9 12 2 2 4-4"/></svg>
+        <span>Sentinel</span><span class="ver" id="ver"></span>
+      </div>
+      <div class="spacer"></div>
+      <button id="theme" type="button" aria-label="Toggle light and dark theme"></button>
+    </div>
+    <nav role="tablist" aria-label="Sections">
+      <button role="tab" id="tab-scan" aria-controls="p-scan" aria-selected="true">Port scan</button>
+      <button role="tab" id="tab-logs" aria-controls="p-logs" aria-selected="false" tabindex="-1">Log analysis</button>
+      <button role="tab" id="tab-pw" aria-controls="p-pw" aria-selected="false" tabindex="-1">Passwords</button>
+      <button role="tab" id="tab-hist" aria-controls="p-hist" aria-selected="false" tabindex="-1">History</button>
+    </nav>
+  </div>
+</header>
+
+<main id="main" class="wrap" tabindex="-1">
+
+<section id="p-scan" role="tabpanel" aria-labelledby="tab-scan">
+  <div class="card">
+    <h2>Scan this machine</h2>
+    <div class="notice">The dashboard only scans <strong>127.0.0.1</strong> (this computer). Only test systems you own or are authorized to test.</div>
+    <form id="scan-form" class="row">
+      <div class="field"><label for="s-preset">Preset</label>
+        <select id="s-preset"><option value="common">Common service ports</option><option value="1-1024" selected>Well-known (1-1024)</option><option value="1-10000">Extended (1-10000)</option><option value="custom">Custom...</option></select></div>
+      <div class="field"><label for="s-ports">Ports</label><input id="s-ports" type="text" value="1-1024" inputmode="text" autocomplete="off" spellcheck="false"></div>
+      <div class="field" style="flex-basis:110px"><label for="s-timeout">Timeout (ms)</label><input id="s-timeout" type="number" min="50" max="5000" value="400"></div>
+      <label class="check field" style="flex-basis:150px"><input id="s-banner" type="checkbox" checked> Grab banners</label>
+      <div><button class="primary" id="s-run" type="submit">Run scan</button></div>
+    </form>
+    <div class="status" id="s-status" role="status" aria-live="polite"></div>
+    <div id="s-out"></div>
+  </div>
+</section>
+
+<section id="p-logs" role="tabpanel" aria-labelledby="tab-logs" hidden>
+  <div class="card">
+    <h2>Analyze a log</h2>
+    <p class="muted small">Paste or upload an sshd/syslog auth log or an Apache/nginx access log. Detects brute force, SQLi/XSS/path-traversal probes and request-rate spikes.</p>
+    <label for="l-text">Log contents</label>
+    <textarea id="l-text" spellcheck="false" placeholder="Nov  3 09:10:05 web01 sshd[2211]: Failed password for root from 203.0.113.45 port 40000 ssh2"></textarea>
+    <div class="row" style="margin-top:12px">
+      <div class="field" style="flex-basis:200px"><label for="l-file">Upload file</label><input id="l-file" type="file" accept=".log,.txt,text/plain"></div>
+      <div class="field" style="flex-basis:110px"><label for="l-thr">Failed logins</label><input id="l-thr" type="number" min="1" max="1000" value="5"></div>
+      <div class="field" style="flex-basis:110px"><label for="l-win">Window (s)</label><input id="l-win" type="number" min="1" max="86400" value="300"></div>
+      <button type="button" id="l-sample">Load sample</button>
+      <button type="button" class="primary" id="l-run">Analyze</button>
+    </div>
+    <div class="status" id="l-status" role="status" aria-live="polite"></div>
+    <div id="l-out"></div>
+  </div>
+</section>
+
+<section id="p-pw" role="tabpanel" aria-labelledby="tab-pw" hidden>
+  <div class="card">
+    <h2>Password strength</h2>
+    <p class="muted small">Checked by the local Sentinel API on 127.0.0.1. Passwords are never stored, logged, or sent anywhere else.</p>
+    <label for="pw">Candidate password</label>
+    <div class="pwrow">
+      <input id="pw" type="password" autocomplete="off" spellcheck="false" aria-describedby="pw-label">
+      <button type="button" id="pw-show" aria-pressed="false">Show</button>
+    </div>
+    <div class="meter" id="meter" data-score="" role="img" aria-label="Strength meter"><span></span><span></span><span></span><span></span><span></span></div>
+    <div id="pw-label" role="status" aria-live="polite"><span class="muted">Start typing to see feedback.</span></div>
+    <div id="pw-detail"></div>
+  </div>
+</section>
+
+<section id="p-hist" role="tabpanel" aria-labelledby="tab-hist" hidden>
+  <div class="card">
+    <div class="row" style="align-items:center"><h2 style="margin:0">Report history</h2><div class="spacer"></div><button type="button" id="h-refresh">Refresh</button></div>
+    <div class="status" id="h-status" role="status" aria-live="polite"></div>
+    <ul class="hist" id="h-list"></ul>
+  </div>
+  <div class="card" id="h-view" hidden><h2 id="h-title">Report</h2><div id="h-body"></div></div>
+</section>
+
+</main>
+
+<script>
+"use strict";
+const $ = (s, r = document) => r.querySelector(s);
+function el(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === "class") e.className = v; else if (k === "text") e.textContent = v;
+    else if (k.startsWith("data-") || k.startsWith("aria-") || k === "role") e.setAttribute(k, v); else e[k] = v;
+  }
+  for (const c of kids.flat()) if (c != null) e.append(c.nodeType ? c : document.createTextNode(String(c)));
+  return e;
+}
+async function api(path, body) {
+  const opt = body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
+  const r = await fetch(path, opt);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+  return j;
+}
+function busy(btn, on, label) { btn.disabled = on; if (label) btn.textContent = label; }
+function setStatus(node, text, isErr, spin) {
+  node.replaceChildren();
+  if (!text) return;
+  node.append(isErr ? el("span", { class: "err", text }) : el("span", {}, spin ? el("span", { class: "spin", "aria-hidden": "true" }) : null, text));
+}
+
+/* ---- theme ---- */
+const root = document.documentElement;
+function curTheme() { return root.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"); }
+function applyTheme(t) { root.dataset.theme = t; $("#theme").textContent = t === "dark" ? "Light mode" : "Dark mode"; try { localStorage.setItem("sentinel-theme", t); } catch (e) {} }
+try { const t = localStorage.getItem("sentinel-theme"); if (t) root.dataset.theme = t; } catch (e) {}
+$("#theme").textContent = curTheme() === "dark" ? "Light mode" : "Dark mode";
+$("#theme").onclick = () => applyTheme(curTheme() === "dark" ? "light" : "dark");
+
+/* ---- tabs ---- */
+const tabs = [...document.querySelectorAll("[role=tab]")];
+function selectTab(t, focus) {
+  for (const x of tabs) {
+    const on = x === t;
+    x.setAttribute("aria-selected", on); x.tabIndex = on ? 0 : -1;
+    document.getElementById(x.getAttribute("aria-controls")).hidden = !on;
+  }
+  if (focus) t.focus();
+  if (t.id === "tab-hist") loadHistory();
+}
+tabs.forEach((t, i) => {
+  t.onclick = () => selectTab(t);
+  t.onkeydown = e => {
+    const d = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+    if (d) { e.preventDefault(); selectTab(tabs[(i + d + tabs.length) % tabs.length], true); }
+    if (e.key === "Home") { e.preventDefault(); selectTab(tabs[0], true); }
+    if (e.key === "End") { e.preventDefault(); selectTab(tabs[tabs.length - 1], true); }
+  };
+});
+
+/* ---- renderers ---- */
+const SEV = ["critical", "high", "medium", "low", "info"];
+const badge = s => el("span", { class: "badge sev-" + s, text: s });
+
+function renderScan(env) {
+  const d = env.data, box = el("div");
+  box.append(el("div", { class: "chips" },
+    el("span", { class: "chip", text: d.address }),
+    el("span", { class: "chip", text: d.open_count + " open / " + d.ports_scanned + " scanned" }),
+    el("span", { class: "chip", text: Math.round(d.elapsed_ms) + " ms" })));
+  if (!d.open_ports.length) { box.append(el("div", { class: "empty", text: "No open ports found." })); return box; }
+  const t = el("table", { class: "stack" },
+    el("thead", {}, el("tr", {}, ["Port", "Service", "RTT", "Banner"].map(h => el("th", { scope: "col", text: h })))),
+    el("tbody", {}, d.open_ports.map(p => el("tr", {},
+      el("td", { "data-label": "Port", class: "mono", text: p.port }),
+      el("td", { "data-label": "Service" }, badge2(p.service)),
+      el("td", { "data-label": "RTT", text: p.rtt_ms + " ms" }),
+      el("td", { "data-label": "Banner", class: "mono", text: p.banner || "-" })))));
+  box.append(el("div", { class: "tablewrap" }, t));
+  return box;
+}
+function badge2(text) { return el("span", { class: "badge sev-ok", text }); }
+
+function fmtTs(ts) { return ts ? new Date(ts * 1000).toISOString().replace("T", " ").slice(0, 19) + " UTC" : ""; }
+
+function renderLogs(env) {
+  const d = env.data, box = el("div");
+  const chips = el("div", { class: "chips" });
+  for (const s of SEV) chips.append(el("span", { class: "badge sev-" + s }, s + ": " + d.counts[s]));
+  chips.append(el("span", { class: "chip", text: d.lines_parsed + " lines parsed, " + d.lines_ignored + " ignored" }));
+  box.append(chips);
+  if (!d.findings.length) { box.append(el("div", { class: "empty", text: "No anomalies detected." })); return box; }
+  for (const s of SEV) {
+    const items = d.findings.filter(f => f.severity === s);
+    if (!items.length) continue;
+    const g = el("section", { class: "group", "aria-label": s + " findings" }, el("h3", {}, badge(s), items.length + (items.length === 1 ? " finding" : " findings")));
+    for (const f of items) g.append(el("div", { class: "finding" },
+      el("span", { class: "chip", text: f.type }),
+      el("div", {}, el("div", { text: f.summary }),
+        el("div", { class: "meta" }, [f.ip && "source " + f.ip, f.line && "line " + f.line, fmtTs(f.timestamp)].filter(Boolean).join(" | ")))));
+    box.append(g);
+  }
+  return box;
+}
+
+/* ---- scan ---- */
+const presets = { common: "common", "1-1024": "1-1024", "1-10000": "1-10000" };
+$("#s-preset").onchange = e => { if (presets[e.target.value]) $("#s-ports").value = presets[e.target.value]; else $("#s-ports").focus(); };
+$("#s-ports").oninput = () => { const v = $("#s-ports").value.trim(); $("#s-preset").value = presets[v] ? v : "custom"; };
+$("#scan-form").onsubmit = async e => {
+  e.preventDefault();
+  const btn = $("#s-run"); busy(btn, true); $("#s-out").replaceChildren();
+  setStatus($("#s-status"), "Scanning 127.0.0.1...", false, true);
+  try {
+    const env = await api("/api/scan", { ports: $("#s-ports").value, timeout_ms: +$("#s-timeout").value || 400, banner: $("#s-banner").checked });
+    setStatus($("#s-status"), env.summary + (env.report ? " - saved as " + env.report : ""));
+    $("#s-out").replaceChildren(renderScan(env));
+  } catch (err) { setStatus($("#s-status"), err.message, true); }
+  busy(btn, false);
+};
+
+/* ---- logs ---- */
+const SAMPLE = [
+  ...Array.from({ length: 8 }, (_, i) => `Nov  3 09:10:${String(5 + i * 6).padStart(2, "0")} web01 sshd[2211]: Failed password for ${i % 2 ? "invalid user admin" : "root"} from 203.0.113.45 port ${40000 + i} ssh2`),
+  "Nov  3 09:11:20 web01 sshd[2211]: Accepted password for root from 203.0.113.45 port 40100 ssh2",
+  '198.51.100.9 - - [10/Oct/2023:13:30:01 +0000] "GET /products?id=1%20UNION%20SELECT%20username,password%20FROM%20users-- HTTP/1.1" 500 512 "-" "sqlmap"',
+  '198.51.100.9 - - [10/Oct/2023:13:30:04 +0000] "GET /download?file=../../../../etc/passwd HTTP/1.1" 200 1840 "-" "curl/8"',
+  '198.51.100.9 - - [10/Oct/2023:13:30:09 +0000] "GET /search?q=%3Cscript%3Ealert(1)%3C/script%3E HTTP/1.1" 200 900 "-" "curl/8"',
+  '198.51.100.9 - - [10/Oct/2023:13:30:12 +0000] "GET /.env HTTP/1.1" 404 120 "-" "curl/8"',
+].join("\n");
+$("#l-sample").onclick = () => { $("#l-text").value = SAMPLE; $("#l-text").focus(); };
+$("#l-file").onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  if (f.size > 4 * 1024 * 1024) { setStatus($("#l-status"), "File too large (max 4 MB).", true); return; }
+  $("#l-text").value = await f.text();
+  setStatus($("#l-status"), "Loaded " + f.name + " (" + Math.ceil(f.size / 1024) + " KB)");
+};
+$("#l-run").onclick = async () => {
+  const text = $("#l-text").value;
+  if (!text.trim()) { setStatus($("#l-status"), "Paste or upload a log first.", true); $("#l-text").focus(); return; }
+  const btn = $("#l-run"); busy(btn, true); $("#l-out").replaceChildren();
+  setStatus($("#l-status"), "Analyzing...", false, true);
+  try {
+    const env = await api("/api/logscan", { text, bf_threshold: +$("#l-thr").value || 5, bf_window: +$("#l-win").value || 300 });
+    setStatus($("#l-status"), env.summary + (env.report ? " - saved as " + env.report : ""));
+    $("#l-out").replaceChildren(renderLogs(env));
+  } catch (err) { setStatus($("#l-status"), err.message, true); }
+  busy(btn, false);
+};
+
+/* ---- passwords ---- */
+const pw = $("#pw"); let pwTimer = 0, pwSeq = 0;
+$("#pw-show").onclick = e => { const show = pw.type === "password"; pw.type = show ? "text" : "password"; e.target.textContent = show ? "Hide" : "Show"; e.target.setAttribute("aria-pressed", show); };
+function resetPw() {
+  $("#meter").dataset.score = ""; $("#meter").setAttribute("aria-label", "Strength meter");
+  $("#pw-label").replaceChildren(el("span", { class: "muted", text: "Start typing to see feedback." })); $("#pw-detail").replaceChildren();
+}
+pw.oninput = () => {
+  clearTimeout(pwTimer);
+  if (!pw.value) { pwSeq++; resetPw(); return; }
+  pwTimer = setTimeout(async () => {
+    const seq = ++pwSeq;
+    try {
+      const r = await api("/api/audit", { password: pw.value });
+      if (seq !== pwSeq) return;
+      const sevClass = ["critical", "high", "medium", "low", "ok"][r.score];
+      $("#meter").dataset.score = r.score;
+      $("#meter").setAttribute("aria-label", "Strength: " + r.label);
+      $("#pw-label").replaceChildren(el("span", { class: "badge sev-" + sevClass, text: r.label }), " ",
+        el("span", { class: "muted small", text: r.entropy_bits + " bits | offline crack time: " + r.crack_time }));
+      const d = $("#pw-detail"); d.replaceChildren();
+      if (r.patterns.length) d.append(el("h3", { text: "Patterns found", style: "margin-top:12px" }), el("ul", { class: "plain" }, r.patterns.map(p => el("li", { text: p }))));
+      if (r.feedback.length) d.append(el("h3", { text: "Suggestions", style: "margin-top:12px" }), el("ul", { class: "plain" }, r.feedback.map(p => el("li", { text: p }))));
+    } catch (err) { $("#pw-label").replaceChildren(el("span", { class: "err", text: err.message })); }
+  }, 150);
+};
+
+/* ---- history ---- */
+async function loadHistory() {
+  const list = $("#h-list"); setStatus($("#h-status"), "Loading...", false, true);
+  try {
+    const { reports } = await api("/api/reports");
+    setStatus($("#h-status"), "");
+    list.replaceChildren();
+    if (!reports.length) { list.append(el("li", { class: "empty", text: "No reports yet. Run a scan or analyze a log." })); return; }
+    for (const r of reports) {
+      const b = el("button", { type: "button", text: "View", "aria-label": "View " + r.name });
+      b.onclick = () => viewReport(r.name);
+      list.append(el("li", {}, el("span", { class: "badge sev-low", text: r.kind }),
+        el("div", { class: "grow" }, el("div", { text: r.summary }), el("div", { class: "muted small mono", text: r.generated_at + " | " + r.name })), b));
+    }
+  } catch (err) { setStatus($("#h-status"), err.message, true); }
+}
+async function viewReport(name) {
+  try {
+    const env = await api("/api/reports/" + encodeURIComponent(name));
+    $("#h-title").textContent = env.kind + " report - " + env.generated_at;
+    const body = $("#h-body"); body.replaceChildren();
+    if (env.kind === "scan") body.append(renderScan(env));
+    else if (env.kind === "logscan") body.append(renderLogs(env));
+    else body.append(el("pre", { class: "json", text: JSON.stringify(env.data, null, 2) }));
+    $("#h-view").hidden = false; $("#h-view").scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (err) { setStatus($("#h-status"), err.message, true); }
+}
+$("#h-refresh").onclick = loadHistory;
+
+api("/api/version").then(v => { $("#ver").textContent = "v" + v.version; }).catch(() => {});
+</script>
+</body>
+</html>
