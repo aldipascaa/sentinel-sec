@@ -9,15 +9,17 @@
 #include <string>
 #include <vector>
 
-#include <io.h>
-
 #include "sentinel/logscan.hpp"
+#include "sentinel/platform.hpp"
+#include "sentinel/rules.hpp"
 #include "sentinel/password.hpp"
 #include "sentinel/portrange.hpp"
 #include "sentinel/report.hpp"
 #include "sentinel/scanner.hpp"
 #include "sentinel/version.hpp"
-#include "server.hpp"
+#ifdef SENTINEL_HAS_SERVER
+#include "sentinel/server.hpp"
+#endif
 
 using namespace sentinel;
 
@@ -35,17 +37,20 @@ void usage(std::ostream& os) {
           "              --host H        target host (non-loopback requires --authorized)\n"
           "              --ports SPEC    e.g. 1-1024, 22,80,443, 8000-8100, common  (default 1-1024)\n"
           "              --timeout MS    per-connection timeout (default 500)\n"
-          "              --threads N     worker threads (default 200)\n"
+          "              --threads N     worker threads, each multiplexing many sockets (default 4)\n"
+          "              --concurrency N max connection attempts in flight (default 512, max 1024)\n"
+          "              --family F      auto (IPv4 preferred), 4 or 6\n"
           "              --rate N        max connection attempts/sec (default 1000, 0 = unlimited)\n"
           "              --no-banner     skip banner grabbing\n"
           "              --authorized    confirm you are authorized to scan a non-loopback host\n"
           "  logscan   Detect brute force, injection probes and request spikes in logs\n"
           "              <file>...       auth (sshd/syslog) or web (combined) logs; '-' or none = stdin\n"
+          "              --rules FILE    detection rules as JSON (default: built-in rules/default_rules.json)\n"
           "              --bf-threshold N (5)  --bf-window SEC (300)  --z Z (3.0)  --year YYYY\n"
           "  audit     Password strength auditor; reads one candidate per line\n"
           "              --file F        read from file (default: stdin)   --wordlist F  extra wordlist\n"
           "  serve     Local web dashboard on 127.0.0.1\n"
-          "              --port N (8787)   --max-seconds N  auto-stop after N seconds\n\n"
+          "              --port N (8787)   --max-seconds N  auto-stop after N seconds   --rules FILE\n\n"
           "Common options:\n"
           "  --json          machine-readable output\n"
           "  --no-save       do not write a report file\n"
@@ -140,9 +145,7 @@ std::string fmt1(double v) {
 
 std::string iso_time(std::int64_t ts) {
     if (ts <= 0) return "";
-    std::time_t t = static_cast<std::time_t>(ts);
-    std::tm tm{};
-    gmtime_s(&tm, &t);
+    const std::tm tm = platform::utc_tm(static_cast<std::time_t>(ts));
     char b[32];
     std::strftime(b, sizeof b, "%m-%d %H:%M:%S", &tm);
     return b;
@@ -164,9 +167,16 @@ int cmd_scan(const Args& a) {
     o.ports = parse_port_ranges(a.get("ports", "1-1024"));
     o.timeout_ms = a.get_int("timeout", 500);
     o.threads = a.get_int("threads", o.threads);
+    o.concurrency = a.get_int("concurrency", o.concurrency);
+    const std::string fam = a.get("family", "auto");
+    if (fam == "4") o.family = net::Family::IPv4;
+    else if (fam == "6") o.family = net::Family::IPv6;
+    else if (fam != "auto") throw std::invalid_argument("--family must be auto, 4 or 6");
+    o.authorized = a.flag("authorized");
     o.rate_per_sec = a.get_int("rate", 1000);
     o.grab_banner = !a.flag("no-banner");
-    if (o.timeout_ms < 1 || o.threads < 1 || o.rate_per_sec < 0) throw std::invalid_argument("invalid timeout/threads/rate");
+    if (o.timeout_ms < 1 || o.threads < 1 || o.concurrency < 1 || o.rate_per_sec < 0)
+        throw std::invalid_argument("invalid timeout/threads/concurrency/rate");
 
     std::cerr << kWarning << "\n";
     if (!is_loopback_host(o.host) && !a.flag("authorized")) {
@@ -174,11 +184,16 @@ int cmd_scan(const Args& a) {
                   << "       this host or have written permission to test it.\n";
         return 2;
     }
-    const bool tty = _isatty(_fileno(stderr)) && !a.flag("json");
+    const bool tty = platform::is_tty(stderr) && !a.flag("json");
     auto progress = [&](std::size_t done, std::size_t total) {
         if (tty && (done % 64 == 0 || done == total)) std::fprintf(stderr, "\rScanning... %zu/%zu", done, total);
     };
-    ScanSummary s = run_scan(o, progress);
+    auto scan = run_scan(o, progress);
+    if (!scan) {
+        std::cerr << "error: " << scan.error().message << '\n';
+        return scan.error().code == Errc::Unauthorized ? 2 : 1;
+    }
+    const ScanSummary& s = scan.value();
     if (tty) std::fprintf(stderr, "\r%40s\r", "");
 
     const std::string summary = std::to_string(s.open.size()) + " open of " + std::to_string(s.scanned) +
@@ -202,14 +217,26 @@ int cmd_scan(const Args& a) {
 }
 
 int current_year() {
-    std::time_t t = std::time(nullptr);
-    std::tm tm{};
-    localtime_s(&tm, &t);
-    return tm.tm_year + 1900;
+    return platform::local_tm(std::time(nullptr)).tm_year + 1900;
+}
+
+// Built-in rules, or the file given with --rules. Returns false (after printing) on a bad file.
+bool load_rules(const Args& a, RulesConfig& out) {
+    out = default_rules();
+    if (!a.opts.count("rules")) return true;
+    auto r = load_rules_file(a.opts.at("rules"));
+    if (!r) {
+        std::cerr << "error: " << r.error().message << '\n';
+        return false;
+    }
+    out = std::move(r).value();
+    return true;
 }
 
 int cmd_logscan(const Args& a) {
-    DetectorConfig cfg;
+    RulesConfig rules;
+    if (!load_rules(a, rules)) return 2;
+    DetectorConfig& cfg = rules.thresholds;  // command-line flags override the rules file
     cfg.bf_threshold = a.get_int("bf-threshold", cfg.bf_threshold);
     cfg.bf_window_sec = a.get_int("bf-window", cfg.bf_window_sec);
     cfg.z_threshold = a.get_double("z", cfg.z_threshold);
@@ -236,7 +263,12 @@ int cmd_logscan(const Args& a) {
         }
     }
     std::istringstream is(all);
-    LogScanResult r = analyze_log(is, cfg, year);
+    auto scanned = analyze_log(is, rules, year);
+    if (!scanned) {
+        std::cerr << "error: " << scanned.error().message << '\n';
+        return 2;
+    }
+    const LogScanResult& r = scanned.value();
     json data = to_json(r);
     data["files"] = files;
     const std::string summary = std::to_string(r.findings.size()) + " findings in " + std::to_string(r.lines_parsed) +
@@ -285,7 +317,7 @@ int cmd_audit(const Args& a) {
         }
         read_all(in);
     } else {
-        if (_isatty(_fileno(stdin))) std::cerr << "Enter candidate passwords, one per line (Ctrl+Z then Enter to finish):\n";
+        if (platform::is_tty(stdin)) std::cerr << "Enter candidate passwords, one per line (Ctrl+Z then Enter to finish):\n";
         read_all(std::cin);
     }
 
@@ -321,12 +353,19 @@ int cmd_audit(const Args& a) {
 }
 
 int cmd_serve(const Args& a) {
+#ifdef SENTINEL_HAS_SERVER
     ServerOptions o;
+    if (!load_rules(a, o.rules)) return 2;
     o.port = a.get_int("port", 8787);
     o.report_dir = a.get("report-dir", "reports");
     o.max_seconds = a.get_int("max-seconds", 0);
     if (o.port < 1 || o.port > 65535) throw std::invalid_argument("--port must be 1-65535");
     return run_server(o);
+#else
+    (void)a;
+    std::cerr << "error: this build was configured with SENTINEL_BUILD_SERVER=OFF\n";
+    return 1;
+#endif
 }
 
 }  // namespace
