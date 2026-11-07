@@ -7,7 +7,9 @@
 #include <ctime>
 #include <fstream>
 #include <regex>
+#include <stdexcept>
 
+#include "sentinel/platform.hpp"
 #include "sentinel/version.hpp"
 
 namespace sentinel {
@@ -53,9 +55,7 @@ json to_json(const PasswordResult& r) {
 }
 
 std::string utc_now_iso() {
-    std::time_t t = std::time(nullptr);
-    std::tm tm{};
-    gmtime_s(&tm, &t);
+    const std::tm tm = platform::utc_tm(std::time(nullptr));
     char b[32];
     std::strftime(b, sizeof b, "%Y-%m-%dT%H:%M:%SZ", &tm);
     return b;
@@ -73,8 +73,7 @@ std::filesystem::path save_report(const std::filesystem::path& dir, const json& 
     const auto now = system_clock::now();
     const std::time_t t = system_clock::to_time_t(now);
     const auto ms = duration_cast<milliseconds>(now.time_since_epoch()).count() % 1000;
-    std::tm tm{};
-    gmtime_s(&tm, &t);
+    const std::tm tm = platform::utc_tm(t);
     char stamp[48];
     std::strftime(stamp, sizeof stamp, "%Y%m%d-%H%M%S", &tm);
     const std::string kind = env.value("kind", "report");
@@ -87,7 +86,9 @@ std::filesystem::path save_report(const std::filesystem::path& dir, const json& 
         if (!fs::exists(p)) break;
     }
     std::ofstream f(p, std::ios::binary);
-    f << env.dump(2) << "\n";
+    f << env.dump(2) << '\n';
+    f.flush();
+    if (!f) throw std::runtime_error("cannot write report " + p.string());
     return p;
 }
 

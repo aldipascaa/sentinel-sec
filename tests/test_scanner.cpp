@@ -1,12 +1,11 @@
 #include <gtest/gtest.h>
 
-#include <winsock2.h>
-#include <ws2tcpip.h>
-
 #include <atomic>
 #include <chrono>
+#include <stop_token>
 #include <thread>
 
+#include "sentinel/net.hpp"
 #include "sentinel/scanner.hpp"
 
 using namespace sentinel;
@@ -14,100 +13,196 @@ using namespace sentinel;
 namespace {
 // A loopback listener on an ephemeral port that sends a banner to each client.
 struct Listener {
-    SOCKET s = INVALID_SOCKET;
+    net::Socket s;
     std::uint16_t port = 0;
+    bool ok = false;
     std::atomic<bool> stop{false};
     std::thread th;
+    const char* banner;
 
-    Listener() {
-        WSADATA d;
-        WSAStartup(MAKEWORD(2, 2), &d);
-        s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-        sockaddr_in a{};
-        a.sin_family = AF_INET;
-        inet_pton(AF_INET, "127.0.0.1", &a.sin_addr);
-        a.sin_port = 0;
-        bind(s, reinterpret_cast<sockaddr*>(&a), sizeof(a));
-        listen(s, 16);
-        u_long nb = 1;
-        ioctlsocket(s, FIONBIO, &nb);
-        int len = sizeof(a);
-        getsockname(s, reinterpret_cast<sockaddr*>(&a), &len);
-        port = ntohs(a.sin_port);
+    explicit Listener(net::Family f = net::Family::IPv4, const char* msg = "SSH-2.0-TestServer\r\n") : banner(msg) {
+        auto sock = net::Socket::create(net::Address::loopback(f));
+        if (!sock) return;
+        s = std::move(sock).value();
+        if (!s.bind(net::Address::loopback(f, 0)) || !s.listen(32) || !s.set_nonblocking()) return;
+        port = s.local_port().value();
+        ok = true;
         th = std::thread([this] {
             while (!stop) {
-                WSAPOLLFD p{s, POLLRDNORM, 0};
-                if (WSAPoll(&p, 1, 50) > 0) {
-                    SOCKET c = accept(s, nullptr, nullptr);
-                    if (c != INVALID_SOCKET) {
-                        const char msg[] = "SSH-2.0-TestServer\r\n";
-                        send(c, msg, static_cast<int>(sizeof(msg) - 1), 0);
-                        closesocket(c);
-                    }
+                net::PollEntry e;
+                e.socket = &s;
+                e.want_read = true;
+                net::poll({&e, 1}, 20);
+                if (!e.readable) continue;
+                auto c = s.accept();
+                if (c && c.value().valid() && *banner) {
+                    net::Socket client = std::move(c).value();
+                    client.send(banner, std::char_traits<char>::length(banner));
                 }
             }
         });
     }
     ~Listener() {
         stop = true;
-        th.join();
-        closesocket(s);
+        if (th.joinable()) th.join();
     }
 };
+
+std::uint16_t closed_port() {
+    std::uint16_t p;
+    {
+        Listener l;
+        p = l.port;
+    }  // listener closed -> port refuses connections
+    return p;
+}
 }  // namespace
 
 TEST(Scanner, FindsOpenPortAndBanner) {
     Listener l;
+    ASSERT_TRUE(l.ok);
     ScanOptions o;
     o.ports = {l.port};
     o.timeout_ms = 1000;
     auto r = run_scan(o);
-    ASSERT_EQ(r.open.size(), 1u);
-    EXPECT_EQ(r.open[0].port, l.port);
-    EXPECT_EQ(r.open[0].banner, "SSH-2.0-TestServer");
-    EXPECT_EQ(r.open[0].service, "ssh");  // guessed from banner
-    EXPECT_EQ(r.address, "127.0.0.1");
+    ASSERT_TRUE(r) << r.error().message;
+    ASSERT_EQ(r.value().open.size(), 1u);
+    EXPECT_EQ(r.value().open[0].port, l.port);
+    EXPECT_EQ(r.value().open[0].banner, "SSH-2.0-TestServer");
+    EXPECT_EQ(r.value().open[0].service, "ssh");  // guessed from banner
+    EXPECT_EQ(r.value().address, "127.0.0.1");
 }
 
 TEST(Scanner, ClosedPortIsNotReported) {
-    std::uint16_t closed;
-    {
-        Listener l;
-        closed = l.port;
-    }  // listener closed -> port refuses connections
     ScanOptions o;
-    o.ports = {closed};
-    o.timeout_ms = 500;
+    o.ports = {closed_port()};
+    o.timeout_ms = 1500;
     auto r = run_scan(o);
-    EXPECT_TRUE(r.open.empty());
-    EXPECT_EQ(r.scanned, 1u);
+    ASSERT_TRUE(r);
+    EXPECT_TRUE(r.value().open.empty());
+    EXPECT_EQ(r.value().scanned, 1u);
 }
 
 TEST(Scanner, ScansManyPortsConcurrently) {
     Listener l;
+    ASSERT_TRUE(l.ok);
     ScanOptions o;
     for (unsigned p = l.port > 40 ? l.port - 20u : 1u; p < l.port + 20u && p < 65535u; ++p)
         o.ports.push_back(static_cast<std::uint16_t>(p));
     o.rate_per_sec = 0;
     o.grab_banner = false;
+    o.timeout_ms = 1500;
     std::size_t last = 0;
     auto r = run_scan(o, [&](std::size_t done, std::size_t) { last = done; });
+    ASSERT_TRUE(r);
     EXPECT_EQ(last, o.ports.size());
     bool found = false;
-    for (auto& p : r.open) found |= (p.port == l.port);
+    for (auto& p : r.value().open) found |= (p.port == l.port);
     EXPECT_TRUE(found);
 }
 
-TEST(Scanner, UnresolvableHostThrows) {
+TEST(Scanner, ManyClosedPortsFinishFasterThanSerialTimeouts) {
+    // 200 closed ports with a 1 s timeout would take minutes if probed one at a time.
+    ScanOptions o;
+    for (unsigned p = 20000; p < 20200; ++p) o.ports.push_back(static_cast<std::uint16_t>(p));
+    o.rate_per_sec = 0;
+    o.timeout_ms = 1000;
+    auto t0 = std::chrono::steady_clock::now();
+    auto r = run_scan(o);
+    auto dt = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+    ASSERT_TRUE(r);
+    EXPECT_EQ(r.value().scanned, 200u);
+    EXPECT_LT(dt, 15.0);
+}
+
+TEST(Scanner, SilentServerYieldsEmptyBanner) {
+    Listener silent(net::Family::IPv4, "");
+    ASSERT_TRUE(silent.ok);
+    ScanOptions o;
+    o.ports = {silent.port};
+    o.timeout_ms = 600;
+    auto r = run_scan(o);
+    ASSERT_TRUE(r);
+    ASSERT_EQ(r.value().open.size(), 1u);
+    EXPECT_TRUE(r.value().open[0].banner.empty());  // not http-like port -> no probe, no banner
+}
+
+TEST(Scanner, UnresolvableHostIsAnError) {
     ScanOptions o;
     o.host = "no-such-host.invalid";
     o.ports = {80};
-    EXPECT_THROW(run_scan(o), std::runtime_error);
+    auto r = run_scan(o);
+    ASSERT_FALSE(r);
+    EXPECT_EQ(r.error().code, Errc::Failed);
+}
+
+TEST(Scanner, NonLoopbackRequiresAuthorizationInTheLibrary) {
+    ScanOptions o;
+    o.host = "192.0.2.1";  // TEST-NET-1, never contacted: the guard fires before any socket is created
+    o.ports = {80};
+    auto r = run_scan(o);
+    ASSERT_FALSE(r);
+    EXPECT_EQ(r.error().code, Errc::Unauthorized);
+}
+
+TEST(Scanner, PreCancelledScanReturnsPartialResult) {
+    std::stop_source src;
+    src.request_stop();
+    ScanOptions o;
+    for (unsigned p = 30000; p < 30100; ++p) o.ports.push_back(static_cast<std::uint16_t>(p));
+    auto r = run_scan(o, {}, src.get_token());
+    ASSERT_TRUE(r);
+    EXPECT_TRUE(r.value().cancelled);
+}
+
+TEST(Scanner, CancellationInterruptsRateLimitedScan) {
+    std::stop_source src;
+    ScanOptions o;
+    for (unsigned p = 30000; p < 30400; ++p) o.ports.push_back(static_cast<std::uint16_t>(p));
+    o.rate_per_sec = 20;  // would take 20 s uncancelled
+    std::thread t([&] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        src.request_stop();
+    });
+    auto t0 = std::chrono::steady_clock::now();
+    auto r = run_scan(o, {}, src.get_token());
+    auto dt = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+    t.join();
+    ASSERT_TRUE(r);
+    EXPECT_TRUE(r.value().cancelled);
+    EXPECT_LT(dt, 5.0);
+}
+
+TEST(Scanner, RateLimitSpacesConnections) {
+    ScanOptions o;
+    for (unsigned p = 31000; p < 31010; ++p) o.ports.push_back(static_cast<std::uint16_t>(p));
+    o.rate_per_sec = 20;  // 10 ports at 20/s >= ~0.45 s
+    o.timeout_ms = 1000;
+    auto r = run_scan(o);
+    ASSERT_TRUE(r);
+    EXPECT_GE(r.value().elapsed_ms, 400.0);
+}
+
+TEST(Scanner, Ipv6LoopbackWhenAvailable) {
+    Listener l(net::Family::IPv6);
+    if (!l.ok) GTEST_SKIP() << "IPv6 loopback not available";
+    ScanOptions o;
+    o.host = "::1";
+    o.ports = {l.port};
+    o.timeout_ms = 1000;
+    auto r = run_scan(o);
+    ASSERT_TRUE(r) << r.error().message;
+    ASSERT_EQ(r.value().open.size(), 1u);
+    EXPECT_EQ(r.value().address, "::1");
 }
 
 TEST(Scanner, LoopbackDetection) {
     EXPECT_TRUE(is_loopback_host("127.0.0.1"));
+    EXPECT_TRUE(is_loopback_host("127.5.5.5"));
     EXPECT_TRUE(is_loopback_host("localhost"));
+    EXPECT_TRUE(is_loopback_host("::1"));
     EXPECT_FALSE(is_loopback_host("192.168.1.10"));
     EXPECT_FALSE(is_loopback_host("example.com"));
+    EXPECT_FALSE(is_loopback_host("127.evil.example.com"));  // prefix trick must not pass
+    EXPECT_FALSE(is_loopback_host("127.0.0.1.evil.example.com"));
 }
