@@ -4,3 +4,4 @@ _deps/
 out/
 *.user
 .vs/
+CMakeUserPresets.json

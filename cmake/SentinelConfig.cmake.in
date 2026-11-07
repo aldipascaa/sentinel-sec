@@ -1,0 +1,5 @@
+@PACKAGE_INIT@
+include(CMakeFindDependencyMacro)
+find_dependency(Threads)
+find_dependency(nlohmann_json)  # public headers (report.hpp) include <nlohmann/json.hpp>
+include("${CMAKE_CURRENT_LIST_DIR}/SentinelTargets.cmake")
