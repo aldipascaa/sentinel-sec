@@ -1,0 +1,6 @@
+build/
+reports/
+_deps/
+out/
+*.user
+.vs/

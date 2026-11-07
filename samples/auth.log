@@ -1,0 +1,34 @@
+Nov  3 08:00:01 web01 CRON[411]: pam_unix(cron:session): session opened for user root
+Nov  3 08:12:44 web01 sshd[6305]: Accepted publickey for alice from 10.0.0.12 port 51234 ssh2
+Nov  3 08:40:10 web01 sshd[3471]: Failed password for bob from 10.0.0.15 port 40122 ssh2
+Nov  3 08:40:19 web01 sshd[7468]: Accepted password for bob from 10.0.0.15 port 40124 ssh2
+Nov  3 09:10:08 web01 sshd[1791]: Failed password for root from 203.0.113.45 port 40000 ssh2
+Nov  3 09:10:11 web01 sshd[9779]: Failed password for invalid user admin from 203.0.113.45 port 40001 ssh2
+Nov  3 09:10:14 web01 sshd[6991]: Failed password for invalid user oracle from 203.0.113.45 port 40002 ssh2
+Nov  3 09:10:21 web01 sshd[1950]: Failed password for invalid user test from 203.0.113.45 port 40003 ssh2
+Nov  3 09:10:28 web01 sshd[4517]: Failed password for invalid user ubuntu from 203.0.113.45 port 40004 ssh2
+Nov  3 09:10:31 web01 sshd[2408]: Failed password for invalid user postgres from 203.0.113.45 port 40005 ssh2
+Nov  3 09:10:37 web01 sshd[7851]: Failed password for invalid user user from 203.0.113.45 port 40006 ssh2
+Nov  3 09:10:40 web01 sshd[4943]: Failed password for invalid user git from 203.0.113.45 port 40007 ssh2
+Nov  3 09:10:43 web01 sshd[7955]: Failed password for root from 203.0.113.45 port 40008 ssh2
+Nov  3 09:10:46 web01 sshd[3028]: Failed password for invalid user admin from 203.0.113.45 port 40009 ssh2
+Nov  3 09:10:50 web01 sshd[2013]: Failed password for invalid user oracle from 203.0.113.45 port 40010 ssh2
+Nov  3 09:10:57 web01 sshd[7499]: Failed password for invalid user test from 203.0.113.45 port 40011 ssh2
+Nov  3 09:11:00 web01 sshd[4622]: Failed password for invalid user ubuntu from 203.0.113.45 port 40012 ssh2
+Nov  3 09:11:03 web01 sshd[3181]: Failed password for invalid user postgres from 203.0.113.45 port 40013 ssh2
+Nov  3 09:11:08 web01 sshd[7867]: Failed password for invalid user user from 203.0.113.45 port 40014 ssh2
+Nov  3 09:11:12 web01 sshd[9858]: Failed password for invalid user git from 203.0.113.45 port 40015 ssh2
+Nov  3 09:11:15 web01 sshd[6054]: Failed password for root from 203.0.113.45 port 40016 ssh2
+Nov  3 09:11:22 web01 sshd[3961]: Failed password for invalid user admin from 203.0.113.45 port 40017 ssh2
+Nov  3 09:13:20 web01 sshd[2688]: Accepted password for root from 203.0.113.45 port 40100 ssh2
+Nov  3 09:30:01 web01 sshd[4078]: Failed password for carol from 198.51.100.7 port 50000 ssh2
+Nov  3 09:30:09 web01 sshd[7101]: Failed password for carol from 198.51.100.7 port 50001 ssh2
+Nov  3 09:30:30 web01 sshd[2596]: Failed password for carol from 198.51.100.7 port 50002 ssh2
+Nov  3 09:31:02 web01 sshd[9974]: Accepted password for carol from 198.51.100.7 port 50004 ssh2
+Nov  3 11:02:00 web01 sshd[2028]: Failed password for invalid user admin from 192.0.2.99 port 41000 ssh2
+Nov  3 11:02:30 web01 sshd[1976]: Failed password for invalid user admin from 192.0.2.99 port 41001 ssh2
+Nov  3 11:03:00 web01 sshd[4374]: Failed password for invalid user admin from 192.0.2.99 port 41002 ssh2
+Nov  3 11:03:30 web01 sshd[9133]: Failed password for invalid user admin from 192.0.2.99 port 41003 ssh2
+Nov  3 11:04:00 web01 sshd[9711]: Failed password for invalid user admin from 192.0.2.99 port 41004 ssh2
+Nov  3 11:04:30 web01 sshd[8005]: Failed password for invalid user admin from 192.0.2.99 port 41005 ssh2
+Nov  3 11:05:00 web01 sshd[6146]: Failed password for invalid user admin from 192.0.2.99 port 41006 ssh2
