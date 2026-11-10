@@ -4,6 +4,7 @@
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <string>
@@ -43,10 +44,14 @@ void usage(std::ostream& os) {
           "              --rate N        max connection attempts/sec (default 1000, 0 = unlimited)\n"
           "              --no-banner     skip banner grabbing\n"
           "              --authorized    confirm you are authorized to scan a non-loopback host\n"
+          "              --baseline FILE compare with an earlier scan report: newly opened / closed ports\n"
+          "              --fail-on-change  with --baseline: exit 3 if the open ports changed\n"
           "  logscan   Detect brute force, injection probes and request spikes in logs\n"
           "              <file>...       auth (sshd/syslog) or web (combined) logs; '-' or none = stdin\n"
           "              --rules FILE    detection rules as JSON (default: built-in rules/default_rules.json)\n"
           "              --bf-threshold N (5)  --bf-window SEC (300)  --z Z (3.0)  --year YYYY\n"
+          "              --min-severity L  only report findings at or above info|low|medium|high|critical\n"
+          "              --fail-on L     exit 3 if any finding is at or above this severity\n"
           "  audit     Password strength auditor; reads one candidate per line\n"
           "              --file F        read from file (default: stdin)   --wordlist F  extra wordlist\n"
           "  serve     Local web dashboard on 127.0.0.1\n"
@@ -55,7 +60,18 @@ void usage(std::ostream& os) {
           "  --json          machine-readable output\n"
           "  --no-save       do not write a report file\n"
           "  --report-dir D  report directory (default: reports)\n"
-          "  --version, --help\n";
+          "  --version, --help\n\n"
+          "Exit codes: 0 ok, 1 runtime error, 2 usage or input error, 3 --fail-on / --fail-on-change triggered\n";
+}
+
+// Reads a severity option such as --fail-on; absent = nullopt, unknown name = usage error.
+std::optional<Severity> severity_option(const std::map<std::string, std::string>& opts, const std::string& key) {
+    const auto it = opts.find(key);
+    if (it == opts.end()) return std::nullopt;
+    Severity s{};
+    if (!parse_severity(it->second, s))
+        throw std::invalid_argument("--" + key + " must be info, low, medium, high or critical, got '" + it->second + "'");
+    return s;
 }
 
 struct Args {
@@ -93,7 +109,7 @@ struct Args {
 };
 
 Args parse_args(const std::vector<std::string>& v, std::size_t from) {
-    static const std::set<std::string> bool_flags = {"json", "no-save", "no-banner", "authorized", "help"};
+    static const std::set<std::string> bool_flags = {"json", "no-save", "no-banner", "authorized", "help", "fail-on-change"};
     Args a;
     for (std::size_t i = from; i < v.size(); ++i) {
         const std::string& t = v[i];
@@ -178,6 +194,23 @@ int cmd_scan(const Args& a) {
     if (o.timeout_ms < 1 || o.threads < 1 || o.concurrency < 1 || o.rate_per_sec < 0)
         throw std::invalid_argument("invalid timeout/threads/concurrency/rate");
 
+    // Read the baseline before scanning, so a bad file fails fast.
+    std::optional<json> baseline;
+    if (a.opts.count("baseline")) {
+        std::ifstream in(a.opts.at("baseline"), std::ios::binary);
+        if (!in) {
+            std::cerr << "error: cannot open baseline '" << a.opts.at("baseline") << "'\n";
+            return 2;
+        }
+        baseline = json::parse(in, nullptr, false);
+        if (baseline->is_discarded()) {
+            std::cerr << "error: baseline '" << a.opts.at("baseline") << "' is not valid JSON\n";
+            return 2;
+        }
+    } else if (a.flag("fail-on-change")) {
+        throw std::invalid_argument("--fail-on-change needs --baseline FILE");
+    }
+
     std::cerr << kWarning << "\n";
     if (!is_loopback_host(o.host) && !a.flag("authorized")) {
         std::cerr << "error: '" << o.host << "' is not a loopback address. Re-run with --authorized only if you own\n"
@@ -199,6 +232,16 @@ int cmd_scan(const Args& a) {
     const std::string summary = std::to_string(s.open.size()) + " open of " + std::to_string(s.scanned) +
                                 " ports on " + s.address;
     json env = make_envelope("scan", summary, to_json(s));
+    std::optional<ScanDiff> diff;
+    if (baseline) {
+        auto d = diff_scan(s, o.ports, *baseline);
+        if (!d) {
+            std::cerr << "error: " << d.error().message << '\n';
+            return 2;
+        }
+        diff = std::move(d).value();
+        env["data"]["diff"] = to_json(*diff);
+    }
     if (a.flag("json")) {
         std::cout << env.dump(2) << "\n";
     } else {
@@ -211,9 +254,21 @@ int cmd_scan(const Args& a) {
             for (const auto& p : s.open) rows.push_back({std::to_string(p.port), p.service, fmt1(p.rtt_ms), p.banner});
             print_table({"PORT", "SERVICE", "RTT(ms)", "BANNER"}, rows);
         }
+        if (diff) {
+            const auto list = [](const std::vector<std::uint16_t>& ports) {
+                std::string out;
+                for (const auto p : ports) out += (out.empty() ? "" : ", ") + std::to_string(p);
+                return out;
+            };
+            std::cout << "\nCompared with the baseline"
+                      << (diff->baseline_generated_at.empty() ? "" : " from " + diff->baseline_generated_at) << ":\n";
+            if (!diff->changed()) std::cout << "  No change (" << diff->unchanged << " ports open in both).\n";
+            if (!diff->opened.empty()) std::cout << "  NEWLY OPEN:     " << list(diff->opened) << "\n";
+            if (!diff->closed.empty()) std::cout << "  No longer open: " << list(diff->closed) << "\n";
+        }
     }
     maybe_save(a, env);
-    return 0;
+    return diff && diff->changed() && a.flag("fail-on-change") ? 3 : 0;
 }
 
 int current_year() {
@@ -241,6 +296,8 @@ int cmd_logscan(const Args& a) {
     cfg.bf_window_sec = a.get_int("bf-window", cfg.bf_window_sec);
     cfg.z_threshold = a.get_double("z", cfg.z_threshold);
     const int year = a.get_int("year", current_year());
+    const auto min_severity = severity_option(a.opts, "min-severity");
+    const auto fail_on = severity_option(a.opts, "fail-on");
 
     std::vector<std::string> files = a.positional;
     if (a.opts.count("file")) files.push_back(a.opts.at("file"));
@@ -268,7 +325,11 @@ int cmd_logscan(const Args& a) {
         std::cerr << "error: " << scanned.error().message << '\n';
         return 2;
     }
-    const LogScanResult& r = scanned.value();
+    LogScanResult r = std::move(scanned).value();
+    // --fail-on looks at every finding, even ones --min-severity hides from the output.
+    const bool failed = fail_on && std::any_of(r.findings.begin(), r.findings.end(),
+                                               [&](const Finding& f) { return f.severity >= *fail_on; });
+    if (min_severity) std::erase_if(r.findings, [&](const Finding& f) { return f.severity < *min_severity; });
     json data = to_json(r);
     data["files"] = files;
     const std::string summary = std::to_string(r.findings.size()) + " findings in " + std::to_string(r.lines_parsed) +
@@ -291,7 +352,7 @@ int cmd_logscan(const Args& a) {
         }
     }
     maybe_save(a, env);
-    return 0;
+    return failed ? 3 : 0;
 }
 
 int cmd_audit(const Args& a) {
@@ -374,7 +435,7 @@ int main(int argc, char** argv) {
     std::vector<std::string> v(argv + 1, argv + argc);
     if (v.empty()) {
         usage(std::cerr);
-        return 1;
+        return 2;
     }
     const std::string cmd = v[0];
     if (cmd == "--version" || cmd == "-V" || cmd == "version") {
@@ -389,7 +450,7 @@ int main(int argc, char** argv) {
         Args a = parse_args(v, 1);
         if (!a.error.empty()) {
             std::cerr << "error: " << a.error << "\n";
-            return 1;
+            return 2;
         }
         if (a.flag("help")) {
             usage(std::cout);
@@ -401,7 +462,10 @@ int main(int argc, char** argv) {
         if (cmd == "serve") return cmd_serve(a);
         std::cerr << "error: unknown command '" << cmd << "'\n\n";
         usage(std::cerr);
-        return 1;
+        return 2;
+    } catch (const std::invalid_argument& e) {
+        std::cerr << "error: " << e.what() << "\n";
+        return 2;  // usage error
     } catch (const std::exception& e) {
         std::cerr << "error: " << e.what() << "\n";
         return 1;

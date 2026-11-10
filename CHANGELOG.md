@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] - 2026-11-10
+
+### Added
+- **Scan baselines.** `scan --baseline report.json` compares the scan with an earlier scan report of the same
+  address and lists newly open and no-longer-open ports; `--fail-on-change` turns a change into exit code 3. The
+  JSON output and the saved report gain a `diff` object. Library: `diff_scan()` / `ScanDiff` in `report.hpp`.
+- **Severity gates for `logscan`.** `--min-severity L` hides findings below a level and `--fail-on L` exits 3 when
+  any finding is at or above a level, so the tool can gate a pipeline.
+- GitHub Actions workflow that builds and tests on Windows (MSVC) and Linux (GCC). The Linux job is the first
+  build of the POSIX socket layer, which 1.1.0 shipped without having compiled.
+
+### Changed
+- Usage errors (unknown command, bad option value, missing option value) now exit with code 2 instead of 1,
+  matching the other input errors. Exit codes are documented in `--help` and the README.
+
 ## [1.1.0] - 2026-11-08
 
 Architecture review release; see [ARCHITECTURE_REVIEW.md](ARCHITECTURE_REVIEW.md) for the findings behind every item. CLI behavior and the dashboard are unchanged apart from what is listed.

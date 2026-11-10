@@ -117,6 +117,24 @@ build\windows-msvc\Release\sentinel serve --port 8787             :: open http:/
 
 Useful options: `scan --timeout 500 --threads 4 --concurrency 512 --rate 1000 --no-banner --family auto|4|6`, `logscan --rules F --bf-threshold 5 --bf-window 300 --z 3.0 --year 2024`, `audit --wordlist mylist.txt`, `serve --max-seconds 60 --rules F`. Run `sentinel --help` for the full list. (`--threads` counts event-loop workers; old values such as `--threads 200` still work, clamped to 64.)
 
+### Tracking change and use in CI
+
+```bat
+:: save a known-good scan, then compare later scans against it
+build\windows-msvc\Release\sentinel scan --ports 1-1024 --json > baseline.json
+build\windows-msvc\Release\sentinel scan --ports 1-1024 --baseline baseline.json --fail-on-change
+
+:: fail a pipeline when the logs contain anything high or critical
+build\windows-msvc\Release\sentinel logscan access.log --min-severity medium --fail-on high
+```
+
+`--baseline FILE` lists the ports that are newly open or no longer open compared with an earlier scan report of the
+same address (the JSON output gains a `diff` object). A baseline port that the new scan did not cover is not reported
+as closed. `--min-severity` hides lower findings from the output; `--fail-on` still looks at all of them.
+
+Exit codes: `0` ok, `1` runtime error, `2` usage or input error (bad option, unreadable file, refused target),
+`3` `--fail-on` or `--fail-on-change` triggered.
+
 ### Dashboard security notes
 
 The server binds to loopback only, validates the `Host` header (DNS-rebinding protection), and for POSTs checks `Origin`, `Sec-Fetch-Site` and `Content-Type: application/json` (CSRF). It caps request size, applies read/write timeouts, only scans `127.0.0.1`, allows one scan at a time, and serves a strict CSP with no `unsafe-inline` (the page is `index.html` + `app.css` + `app.js`, all same-origin).

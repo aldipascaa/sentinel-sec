@@ -7,6 +7,7 @@
 #include <ctime>
 #include <fstream>
 #include <regex>
+#include <set>
 #include <stdexcept>
 
 #include "sentinel/platform.hpp"
@@ -52,6 +53,47 @@ json to_json(const PasswordResult& r) {
             {"label", r.label},         {"common", r.common},
             {"patterns", r.patterns},   {"feedback", r.feedback},
             {"crack_time", r.crack_time}};
+}
+
+Result<ScanDiff> diff_scan(const ScanSummary& now, const std::vector<std::uint16_t>& scanned_now, const json& baseline) {
+    const auto bad = [](const std::string& why) { return make_error("baseline " + why, Errc::InvalidArgument); };
+    if (!baseline.is_object() || baseline.value("kind", "") != "scan") return bad("is not a sentinel scan report");
+    const auto data = baseline.find("data");
+    if (data == baseline.end() || !data->is_object()) return bad("has no scan data");
+    const auto ports = data->find("open_ports");
+    if (ports == data->end() || !ports->is_array()) return bad("has no open_ports list");
+    const auto addr = data->find("address");
+    if (addr == data->end() || !addr->is_string()) return bad("has no target address");
+    if (addr->get<std::string>() != now.address)
+        return bad("was taken against " + addr->get<std::string>() + ", not " + now.address);
+
+    std::set<std::uint16_t> before;
+    for (const auto& p : *ports) {
+        const auto port = p.is_object() ? p.find("port") : p.end();
+        if (!p.is_object() || port == p.end() || !port->is_number_integer()) return bad("contains a malformed port entry");
+        const auto n = port->get<long long>();
+        if (n < 1 || n > 65535) return bad("contains port " + std::to_string(n) + ", which is out of range");
+        before.insert(static_cast<std::uint16_t>(n));
+    }
+    std::set<std::uint16_t> open_now;
+    for (const auto& p : now.open) open_now.insert(p.port);
+    const std::set<std::uint16_t> scanned(scanned_now.begin(), scanned_now.end());
+
+    ScanDiff d;
+    const auto gen = baseline.find("generated_at");
+    if (gen != baseline.end() && gen->is_string()) d.baseline_generated_at = gen->get<std::string>();
+    for (const auto port : open_now) {
+        if (before.count(port)) ++d.unchanged;
+        else d.opened.push_back(port);
+    }
+    for (const auto port : before)
+        if (!open_now.count(port) && scanned.count(port)) d.closed.push_back(port);
+    return d;
+}
+
+json to_json(const ScanDiff& d) {
+    return {{"baseline_generated_at", d.baseline_generated_at}, {"opened", d.opened}, {"closed", d.closed},
+            {"unchanged", d.unchanged}, {"changed", d.changed()}};
 }
 
 std::string utc_now_iso() {

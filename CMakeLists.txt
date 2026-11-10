@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(Sentinel VERSION 1.1.0 LANGUAGES CXX
+project(Sentinel VERSION 1.2.0 LANGUAGES CXX
         DESCRIPTION "Defensive security toolkit: port scanner, log anomaly detector, password auditor")
 
 set(CMAKE_CXX_STANDARD 20)
@@ -106,7 +106,7 @@ if(SENTINEL_BUILD_TESTS)
   enable_testing()
   add_executable(sentinel_tests
     tests/test_portrange.cpp tests/test_logscan.cpp tests/test_password.cpp tests/test_scanner.cpp
-    tests/test_net.cpp tests/test_rules.cpp tests/test_result.cpp)
+    tests/test_net.cpp tests/test_rules.cpp tests/test_result.cpp tests/test_report.cpp)
   target_link_libraries(sentinel_tests PRIVATE sentinel_core GTest::gtest_main sentinel_warnings)
   target_compile_definitions(sentinel_tests PRIVATE SENTINEL_SOURCE_DIR="${CMAKE_SOURCE_DIR}" ${_win_defs})
   if(SENTINEL_BUILD_SERVER)
