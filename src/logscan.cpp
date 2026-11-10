@@ -356,7 +356,7 @@ Result<LogScanResult> analyze_log(std::istream& in, const RulesConfig& rules, in
     std::size_t no = 0;
     while (std::getline(in, line)) {
         ++no;
-        if (!line.empty() && line.back() == '') line.pop_back();
+        if (!line.empty() && line.back() == '\r') line.pop_back();
         if (line.empty()) continue;
         ++r.lines_total;
         if (auto e = parse_log_line(line, default_year, no)) {
