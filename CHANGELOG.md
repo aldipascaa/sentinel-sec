@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.2.1] - 2026-11-10
+
+### Fixed
+- **Linux build.** The first CI build with GCC found three things MSVC had accepted: a raw carriage-return byte
+  inside a character literal in the log line reader (now `'\r'`), an unused helper in the CLI, and unbraced
+  `if`s around test assertions. Behaviour is unchanged; the POSIX socket layer now builds and all tests pass on
+  Linux as well as Windows.
+
 ## [1.2.0] - 2026-11-10
 
 ### Added

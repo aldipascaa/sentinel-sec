@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(Sentinel VERSION 1.2.0 LANGUAGES CXX
+project(Sentinel VERSION 1.2.1 LANGUAGES CXX
         DESCRIPTION "Defensive security toolkit: port scanner, log anomaly detector, password auditor")
 
 set(CMAKE_CXX_STANDARD 20)
