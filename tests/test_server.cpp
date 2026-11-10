@@ -117,7 +117,9 @@ TEST(Server, LimitsRequestSize) {
     httplib::Client c("127.0.0.1", s.port());
     const std::string huge(6 * 1024 * 1024, 'a');
     auto r = c.Post("/api/logscan", httplib::Headers{{"Origin", s.origin()}}, huge, "application/json");
-    if (r) EXPECT_EQ(r->status, 413);  // either rejected with 413 or the connection is dropped
+    if (r) {  // either rejected with 413 or the connection is dropped
+        EXPECT_EQ(r->status, 413);
+    }
 }
 
 TEST(Server, LogscanUsesConfiguredRules) {

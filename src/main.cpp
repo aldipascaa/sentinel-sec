@@ -159,14 +159,6 @@ std::string fmt1(double v) {
     return b;
 }
 
-std::string iso_time(std::int64_t ts) {
-    if (ts <= 0) return "";
-    const std::tm tm = platform::utc_tm(static_cast<std::time_t>(ts));
-    char b[32];
-    std::strftime(b, sizeof b, "%m-%d %H:%M:%S", &tm);
-    return b;
-}
-
 void maybe_save(const Args& a, const json& env) {
     if (a.flag("no-save")) return;
     try {

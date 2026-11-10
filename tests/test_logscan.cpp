@@ -171,7 +171,9 @@ TEST(RateSpike, DetectsBurst) {
     auto r = run(t);
     ASSERT_TRUE(has(r, "rate-spike"));
     for (auto& f : r.findings)
-        if (f.type == "rate-spike") EXPECT_EQ(f.ip, "203.0.113.77");
+        if (f.type == "rate-spike") {
+            EXPECT_EQ(f.ip, "203.0.113.77");
+        }
 }
 
 TEST(RateSpike, SteadyTrafficIsQuiet) {
